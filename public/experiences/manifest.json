@@ -1,0 +1,40 @@
+{
+  "experiences": [
+    {
+      "id": "skywalk",
+      "label": "Skywalk",
+      "order": 1,
+      "stereo": false,
+      "stereoPanos": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14
+      ]
+    },
+    {
+      "id": "Indra & Kubera",
+      "label": "Indra & Kubera",
+      "order": 2,
+      "stereo": true,
+      "hotspotNavTags": true
+    },
+    {
+      "id": "Varuna & Aditya",
+      "label": "Varuna & Aditya",
+      "order": 3,
+      "stereo": true,
+      "hotspotNavTags": true
+    }
+  ]
+}

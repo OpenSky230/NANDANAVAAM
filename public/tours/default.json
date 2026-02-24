@@ -1,0 +1,6 @@
+{
+  "id": "default",
+  "durationTargetSec": 720,
+  "auto": "all",
+  "steps": []
+}

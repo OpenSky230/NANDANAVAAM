@@ -1,0 +1,1674 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,height=device-height,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+    <title>Nandanavanam VR Tour</title>
+    <meta name="application-name" content="Nandanavanam" />
+    <meta name="apple-mobile-web-app-title" content="Nandanavanam" />
+    <meta name="description" content="Nandanavanam VR tour" />
+    <meta property="og:site_name" content="Nandanavanam" />
+    <meta property="og:title" content="Nandanavanam VR Tour" />
+    <link rel="icon" type="image/png" href="/assets/logo.png" />
+    <link rel="apple-touch-icon" href="/assets/logo.png" />
+    <meta name="theme-color" content="#000000" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"/>
+
+    <style>
+      :root{
+        --brand-indigo:#1B1756; --brand-yellow:#F3C400;
+        --panel:#101226; --panel-2:#20233B; --ink:#E7ECFF;
+        --start-gate-bg: url("/assets/background.jpg");
+        /* JS-updated visual viewport size (used for iOS fullscreen fallback) */
+        --app-height: 100vh;
+        --app-width: 100vw;
+        /* Nandanavanam UI palette (neutral glass) */
+        --ui-surface: rgba(255, 255, 255, 0.22);
+        --ui-surface-strong: rgba(255, 255, 255, 0.30);
+        --ui-border: rgba(255, 255, 255, 0.42);
+        --ui-ink: rgba(15, 23, 42, 0.92);
+        --ui-ink-muted: rgba(15, 23, 42, 0.70);
+        --ui-icon-bg: rgba(20, 27, 33, 0.92);
+        --ui-icon-border: rgba(255, 255, 255, 0.92);
+        --ui-icon-ink: rgba(255, 255, 255, 0.98);
+        /* Minimap base width with responsive clamp (overrides JS default) */
+        /* Scales to both vw and vh for better fit on phones/tablets */
+        --mini-width: clamp(240px, min(52vw, 44vh), 520px); 
+        /* Extra bottom offset for embedded/iframe hosts (set by app.js) */
+        --embed-bottom-offset: 0px;
+      }
+      *{ box-sizing: border-box; }
+      html,body{height:100%;margin:0;background:#000;color:var(--ink);
+        font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu;
+        overflow:hidden; /* Prevent scroll on mobile */
+        -webkit-overflow-scrolling: touch;
+        touch-action: manipulation;
+      }
+      /* Canvas uses progressive fallbacks for older iOS */
+      #renderCanvas{
+        width:100vw; height:100vh; /* fallback */
+        height:100svh;             /* iOS 15+ */
+        height:100dvh;             /* modern */
+        height:calc(var(--vh, 1vh) * 100);
+        height:var(--app-height, 100vh);
+        display:block; touch-action:none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      /* CSS fallback fullscreen (iOS without Fullscreen API, and iframes) */
+      body.fakefs { overflow:hidden; position:fixed; inset:0; width:100%; height:100%; height:calc(var(--vh, 1vh) * 100); height:var(--app-height, 100vh); }
+      body.fakefs #renderCanvas{ position:fixed; inset:0; width:100vw; height:100vh; height:100svh; height:100dvh; height:calc(var(--vh, 1vh) * 100); height:var(--app-height, 100vh); z-index:1; }
+      /* iOS-specific: ensure content fills to edges */
+      @supports (-webkit-touch-callout: none) {
+        body.fakefs {
+          min-height: -webkit-fill-available;
+          height: var(--app-height, 100vh);
+          padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+          padding: 0; /* Reset padding but keep safe areas for positioned elements */
+        }
+        body.fakefs #renderCanvas {
+          height: -webkit-fill-available;
+          height: var(--app-height, 100vh);
+        }
+      }
+      /* Ensure UI stays on top in fake fullscreen */
+      body.fakefs .mini-wrap,
+      body.fakefs #compassHud,
+      body.fakefs #brandLogo,
+      body.fakefs #exitFSBtn{ z-index:100002 !important; }
+      /* Next-direction arrow subtle pulse */
+      #nextArrow{ animation: nextPulse 1.4s ease-in-out infinite; transform-origin: 12px 18px; }
+      @keyframes nextPulse{ 0%{ opacity:.9; transform: scale(1) } 50%{ opacity:.45; transform: scale(0.86) } 100%{ opacity:.9; transform: scale(1) } }
+
+      /* Zone name toast: HIDDEN */
+      #zoneToast{ display:none !important; }
+
+      /* Dollhouse overlay (3D model viewer) */
+      #dollhouseOverlay{
+        position:fixed; inset:0;
+        z-index:100010;
+        display:none;
+        background:rgba(0,0,0,.72);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+      }
+      #dollhouseOverlay[data-open="1"]{ display:block; }
+      #dollhouseOverlay .dh-panel{
+        position:absolute;
+        inset: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+        border-radius: 18px;
+        background: rgba(16, 18, 38, 0.92);
+        border: 1px solid rgba(255,255,255,0.14);
+        box-shadow: 0 14px 44px rgba(0,0,0,0.45);
+        overflow:hidden;
+      }
+      #dollhouseCanvas{
+        width:100%;
+        height:100%;
+        display:block;
+        touch-action:none;
+      }
+      #dollhouseClose{
+        position:absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 2;
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.24);
+        background: rgba(0,0,0,0.34);
+        color: rgba(255,255,255,0.95);
+        cursor:pointer;
+        display:grid;
+        place-items:center;
+      }
+      #dollhouseStatus{
+        position:absolute;
+        left: 14px;
+        bottom: 14px;
+        z-index: 2;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(0,0,0,0.32);
+        border: 1px solid rgba(255,255,255,0.14);
+        color: rgba(255,255,255,0.92);
+        font: 600 12px/1.2 Inter, ui-sans-serif, system-ui;
+        max-width: min(520px, calc(100vw - 56px));
+      }
+
+      /* Rotate overlay (phones portrait only) */
+      #rotateOverlay{ position:fixed; inset:0; display:none; place-items:center; z-index:100000; background:rgba(0,0,0,.86); color:#fff; text-align:center; padding:24px; }
+      #rotateOverlay .card{ background:#0f1424; border:1px solid rgba(32,35,59,.9); border-radius:16px; padding:16px 18px; max-width:min(90vw,520px) }
+      #rotateOverlay h2{ margin:0 0 8px; font:700 18px/1.2 Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto }
+      #rotateOverlay p{ margin:0; opacity:.9 }
+
+      /* Tap-to-start button for iOS autostart flows */
+      #tapStart{ margin-top:12px; display:none; background:#F3C400; color:#1a1a1a; border:0; border-radius:12px; padding:10px 14px; font:700 14px Inter, ui-sans-serif, system-ui; cursor:pointer }
+
+      /* First-run onboarding tips overlay */
+      #onboardOverlay{
+        position:fixed;
+        inset:0;
+        z-index:100020;
+        display:none;
+        /* Allow users to still interact with the UI being explained. */
+        pointer-events:none;
+      }
+      #onboardOverlay:not([hidden]){ display:block; }
+      #onboardOverlay .onboard-dim{
+        display:none;
+      }
+      #onboardOverlay .onboard-spotlight{
+        position:absolute;
+        border:1.5px solid rgba(243,196,0,0.88);
+        border-radius:16px;
+        box-shadow:
+          0 0 0 2px rgba(243,196,0,0.20),
+          0 10px 28px rgba(0,0,0,0.35),
+          inset 0 0 0 1px rgba(255,255,255,0.10);
+        pointer-events:none;
+      }
+      #onboardOverlay .onboard-card{
+        position:absolute;
+        left:12px;
+        top:12px;
+        transform:none;
+        width:min(88vw, 360px);
+        pointer-events:auto;
+        background:
+          radial-gradient(140% 140% at 0% 0%, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.06) 55%, rgba(255,255,255,0.04) 100%),
+          rgba(16,18,38,0.58);
+        border:1px solid rgba(255,255,255,0.18);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border-radius:16px;
+        padding:14px 14px 12px;
+        color:#fff;
+        box-shadow:0 18px 60px rgba(0,0,0,0.45);
+      }
+      #onboardOverlay .onboard-card::before{
+        content:"";
+        position:absolute;
+        width:12px;
+        height:12px;
+        left:calc(var(--coach-arrow-x, 24px) - 6px);
+        top:calc(var(--coach-arrow-y, 12px) - 6px);
+        transform: rotate(45deg);
+        background:rgba(16,18,38,0.42);
+        border-left:1px solid rgba(255,255,255,0.14);
+        border-top:1px solid rgba(255,255,255,0.14);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+      }
+      #onboardOverlay .onboard-title{ font:800 14px/1.2 Inter, ui-sans-serif; margin:0 0 6px; letter-spacing:.02em }
+      #onboardOverlay .onboard-body{ font:600 13px/1.4 Inter, ui-sans-serif; opacity:0.92 }
+      #onboardOverlay .onboard-hint{ margin-top:8px; font:650 12px/1.25 Inter, ui-sans-serif; opacity:0.78 }
+      #onboardOverlay .onboard-progress{ display:flex; gap:6px; align-items:center; margin-top:10px }
+      #onboardOverlay .onboard-dot{ width:7px; height:7px; border-radius:999px; background:rgba(255,255,255,0.20) }
+      #onboardOverlay .onboard-dot.active{ background:rgba(243,196,0,0.95) }
+      #onboardOverlay .onboard-actions{ display:flex; gap:10px; justify-content:flex-end; margin-top:10px }
+      #onboardOverlay .onboard-btn{
+        border-radius:12px;
+        padding:10px 12px;
+        font:800 12px/1 Inter, ui-sans-serif;
+        cursor:pointer;
+        border:1px solid rgba(255,255,255,0.22);
+        background:rgba(255,255,255,0.10);
+        color:#fff;
+      }
+      #onboardOverlay .onboard-btn.primary{
+        background:rgba(243,196,0,0.95);
+        color:#0f1424;
+        border-color:rgba(243,196,0,0.95);
+      }
+      #onboardOverlay .onboard-btn:active{ transform:translateY(1px) }
+
+      /* Exit fullscreen button (top-right) */
+      #exitFSBtn{
+        position:fixed; right:max(12px, env(safe-area-inset-right)); top:max(12px, env(safe-area-inset-top));
+        z-index:100001; display:none;
+        background:rgba(16,18,38,.85); border:1px solid rgba(243,196,0,.85); color:#F3C400;
+        border-radius:999px; padding:8px 14px; cursor:pointer;
+        font:700 13px/1 Inter, ui-sans-serif, system-ui; letter-spacing:0.05em; text-transform:uppercase;
+        box-shadow:0 6px 18px rgba(0,0,0,.35);
+      }
+      #exitFSBtn:active{ transform:translateY(1px) }
+
+      /* Fullscreen / expand button (shown when not fullscreen) */
+      #btnFullscreen{
+        position:fixed; right:max(12px, env(safe-area-inset-right)); top:max(12px, env(safe-area-inset-top));
+        z-index:100001; display:none;
+        align-items:center; justify-content:center;
+        background:rgba(16,18,38,.85); border:1px solid rgba(255,255,255,.32); color:#fff;
+        border-radius:999px; padding:10px 12px; cursor:pointer;
+        box-shadow:0 6px 18px rgba(0,0,0,.35);
+        -webkit-tap-highlight-color: transparent;
+      }
+      #btnFullscreen svg{ width:18px; height:18px; display:block; }
+      #btnFullscreen:active{ transform:translateY(1px) }
+
+      /* iOS hint: Add to Home Screen for true fullscreen */
+      #pwaHint[hidden]{ display:none !important; }
+      #pwaHint{
+        position:fixed; inset:0;
+        display:grid; place-items:end center;
+        padding:16px;
+        padding-bottom: max(16px, env(safe-area-inset-bottom));
+        z-index:100003;
+        pointer-events:none;
+      }
+      #pwaHint[data-open="1"]{ pointer-events:auto; }
+      #pwaHint .pwa-card{
+        width:min(560px, calc(100vw - 32px));
+        background:rgba(16,18,38,.92);
+        border:1px solid rgba(255,255,255,.18);
+        border-radius:16px;
+        box-shadow:0 16px 60px rgba(0,0,0,.55);
+        color:#fff;
+        padding:14px 14px 12px;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+      }
+      #pwaHint .pwa-title{ font:800 13px/1.2 Inter, ui-sans-serif; letter-spacing:.08em; text-transform:uppercase; opacity:.9; }
+      #pwaHint .pwa-body{ margin-top:8px; font:650 13px/1.45 Inter, ui-sans-serif; opacity:.92; }
+      #pwaHint .pwa-actions{ margin-top:10px; display:flex; justify-content:flex-end; gap:10px; }
+      #pwaHintClose{
+        border-radius:12px;
+        padding:10px 12px;
+        font:800 12px/1 Inter, ui-sans-serif;
+        cursor:pointer;
+        border:1px solid rgba(255,255,255,.22);
+        background:rgba(255,255,255,0.10);
+        color:#fff;
+      }
+      #pwaHintClose:active{ transform:translateY(1px) }
+
+      /* === Custom dropdown (used for both gate + live) === */
+      .select{ position:relative; width:auto; }
+      .select-btn{
+        display:flex; align-items:center; justify-content:space-between; gap:10px;
+        min-width:180px; padding:12px 14px; padding-right:42px;
+        background:#0f1424; color:var(--ink);
+        border:1px solid rgba(32,35,59,.55); border-radius:12px;
+        font-size:15px; line-height:1.1; cursor:pointer;
+      }
+      .select-btn:focus{ outline:none; box-shadow:0 0 0 2px var(--brand-yellow); }
+      .select-btn svg{ position:absolute; right:12px; pointer-events:none; transition:transform .18s ease; }
+      .select[data-open="true"] .select-btn svg{ transform:rotate(180deg); }
+
+      .select-list{
+        position:absolute; bottom:calc(100% + 8px); left:0; right:0;
+        background:#0f1424; border:1px solid var(--brand-yellow);
+        border-radius:12px; padding:6px 0; margin:0; list-style:none;
+        box-shadow:0 10px 24px rgba(0,0,0,.35); display:none; z-index:50;
+        max-height:min(40vh, 280px); overflow:auto;
+      }
+      /* drop downward when used inside the gate row */
+      .select.drop-down .select-list{ top:calc(100% + 8px); bottom:auto; }
+      .select[data-open="true"] .select-list{ display:block; }
+      .select-list li{
+        padding:12px 14px; font-size:15px; cursor:pointer; color:var(--ink);
+      }
+      /* Hide zone dropdown and extra autoplay buttons in live bar */
+      #zoneSelectWrap{ display:none !important; }
+      #tourStart, #tourPrev, #tourNext{ display:none !important; }
+      .select-list li:hover,
+      .select-list li.active{
+        background:var(--brand-yellow); color:#1a1a1a;
+      }
+      /* hide native selects we sync with */
+      #expSelectLive, #expSelect{ display:none; }
+
+      /* minimap styles are provided by engine */
+
+      /* logo top-left */
+      #brandLogo{
+        position:fixed; top:max(12px, env(safe-area-inset-top)); left:max(12px, env(safe-area-inset-left)); z-index:41;
+        padding:8px 10px; border-radius:12px;
+        background: rgba(0,0,0,.22); opacity:.95;
+        -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+        user-select:none; pointer-events:none;
+      }
+      body[data-ui="new"] #brandLogo{ display:none; }
+      #brandLogo img{ height:90px; width:auto; display:block; opacity:.85 }
+
+      /* Top HUD */
+      #topHud{
+        position:fixed;
+        left:50%;
+        top:max(12px, env(safe-area-inset-top));
+        transform:translateX(-50%);
+        z-index:100002;
+        display:none;
+        align-items:center;
+        gap:10px;
+      }
+      body[data-ui="new"][data-experience="1"] #topHud{ display:flex; }
+      .hud-pill{
+        display:flex;
+        align-items:center;
+        gap:8px;
+        background:var(--ui-surface);
+        border:1px solid var(--ui-border);
+        border-radius:14px;
+        padding:10px 14px;
+        color:var(--ui-ink);
+        font:600 14px/1 Inter, ui-sans-serif, system-ui;
+        backdrop-filter:blur(20px);
+        -webkit-backdrop-filter:blur(20px);
+        box-shadow:0 8px 32px rgba(0,0,0,0.2),
+          inset 0 1px 1px rgba(255,255,255,0.15);
+      }
+      /* Match provided UI: autoplay pill has text + active state */
+      .hud-pill .hud-text{ font:600 14px/1 Inter, ui-sans-serif, system-ui; color:var(--ui-ink); white-space:nowrap; text-shadow:none }
+      .hud-pill.is-active{ background:var(--ui-surface-strong); border-color:var(--ui-border) }
+      .hud-pill svg{ opacity:0.85; }
+      #tourToggleTop{
+        cursor:pointer;
+      }
+      #tourToggleTop svg{ width:18px; height:18px; display:block; }
+      #compassHud{
+        position:static;
+        display:none;
+        align-items:center;
+        gap:8px;
+        padding:10px 14px;
+      }
+      body[data-ui="new"][data-experience="1"] #compassHud{ display:flex; }
+      #compassHud .compass-dial{
+        position:relative;
+        width:18px;
+        height:18px;
+        border-radius:50%;
+        flex-shrink:0;
+      }
+      #compassDial{
+        width:100%;
+        height:100%;
+        transition: transform 0.12s ease-out;
+      }
+      #compassArrow{
+        display:none;
+      }
+      #nextArrow{
+        display:none;
+      }
+      #compassText{
+        font:600 14px/1 Inter,ui-sans-serif;
+        letter-spacing:.06em;
+        color:var(--ui-ink);
+        white-space:nowrap;
+        text-shadow:none;
+      }
+      #compassDirection{ display:none; }
+
+      /* Experiences drawer */
+      #expDrawerToggle{
+        position:fixed;
+        left:max(12px, env(safe-area-inset-left));
+        top:max(12px, env(safe-area-inset-top));
+        z-index:100003;
+        display:none;
+        cursor:pointer;
+      }
+      body[data-ui="new"][data-experience="1"] #expDrawerToggle{ display:flex; }
+      /* Make the hamburger look like the screenshot */
+      #expDrawerToggle{
+        width:55px;
+        height:46px;
+        border-radius:10px;
+        padding:0;
+        justify-content:center;
+        background:var(--ui-surface);
+        border:1px solid var(--ui-border);
+        backdrop-filter:blur(20px);
+        -webkit-backdrop-filter:blur(20px);
+        box-shadow:0 8px 22px rgba(0,0,0,0.18),
+          inset 0 1px 1px rgba(255,255,255,0.15);
+      }
+      #expDrawerToggle svg{ width:22px; height:22px; opacity:0.9 }
+      #expDrawer{
+        position:fixed;
+        left:max(12px, env(safe-area-inset-left));
+        top:max(12px, env(safe-area-inset-top));
+        width:min(360px, 92vw);
+        max-height:calc(100vh - 24px);
+        overflow:auto;
+        background:var(--ui-surface-strong);
+        border:1px solid var(--ui-border);
+        backdrop-filter:blur(18px);
+        border-radius:14px;
+        transform:translateY(-8px);
+        opacity:0;
+        pointer-events:none;
+        transition:opacity .16s ease, transform .16s ease;
+        z-index:100004;
+        padding:14px 14px 12px;
+      }
+      #expDrawer[data-open="true"]{ opacity:1; pointer-events:auto; transform:translateY(0); }
+      #expDrawer h3{
+        margin:0;
+        font:600 14px/1 Inter, ui-sans-serif;
+        letter-spacing:.08em;
+        text-transform:uppercase;
+        color:var(--ui-ink-muted);
+      }
+      #expDrawer .exp-close{
+        position:absolute;
+        right:10px;
+        top:10px;
+        width:30px;
+        height:30px;
+        border-radius:999px;
+        border:1px solid rgba(255,255,255,0.4);
+        background:rgba(255,255,255,0.08);
+        color:#fff;
+        cursor:pointer;
+        line-height:1;
+      }
+      #expDrawer .menu-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; min-height:34px; margin-bottom:8px } 
+      #expDrawer .menu-subtle{ margin:0 0 10px; font:600 12px/1.2 Inter, ui-sans-serif; color:var(--ui-ink-muted) }
+      #expDrawer .menu-grid{ display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:14px; margin:8px 0 14px }
+      #expDrawer .menu-item{ all:unset; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:8px; }
+      #expDrawer .menu-ico{
+        width:52px; height:52px; border-radius:999px;
+        /* Default: no fill; only the active experience is filled */
+        background:transparent;
+        border:3px solid rgba(15, 23, 42, 0.28);
+        color:rgba(15, 23, 42, 0.78);
+        box-shadow:0 10px 20px rgba(0,0,0,0.10);
+        display:grid; place-items:center;
+      }
+      #expDrawer .menu-ico svg{ width:26px; height:26px; fill:none; stroke:currentColor; stroke-width:1.8; opacity:1 }
+      #expDrawer .menu-item.active .menu-ico{ background:var(--ui-icon-bg); border-color:var(--ui-icon-border); color:var(--ui-icon-ink) }
+      #expDrawer .menu-text{ font:700 11px/1.1 Inter, ui-sans-serif; color:var(--ui-ink); text-align:center; }
+      #expDrawer .menu-closeexp{
+        width:100%;
+        border:0;
+        border-radius:10px;
+        padding:12px 14px;
+        background:linear-gradient(135deg, #ff5a5f 0%, #e43f44 100%);
+        color:#fff;
+        font:700 12px/1 Inter, ui-sans-serif;
+        cursor:pointer;
+        box-shadow:0px 10px 18px rgba(0,0,0,0.12);
+      }
+      #expDrawer .menu-closeexp:active{ transform:translateY(1px) }
+      /* Keep legacy exp select present for app.js, but hidden */
+      #expDrawer .select{ display:none !important; }
+
+      /* Bottom zone bar */
+      #zoneBar{
+        position:fixed;
+        left:50%;
+        transform:translateX(-50%);
+        bottom:0;
+        z-index:100002;
+        display:none;
+        width:min(1200px, calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+        pointer-events:auto;
+        background:var(--ui-surface);
+        border:1px solid var(--ui-border);
+        border-radius:18px;
+        backdrop-filter:blur(18px);
+        -webkit-backdrop-filter:blur(18px);
+        box-shadow:0 18px 40px rgba(0,0,0,0.28);
+      }
+      body[data-ui="new"][data-experience="1"] #zoneBar[data-show="1"]{ display:flex; }
+      /* Scroll buttons (appear only when overflowed) */
+      #zoneBar .zone-scroll-btn{
+        all:unset;
+        box-sizing:border-box;
+        position:absolute;
+        top:50%;
+        transform:translateY(-50%);
+        width:34px;
+        height:34px;
+        border-radius:999px;
+        display:none;
+        align-items:center;
+        justify-content:center;
+        cursor:pointer;
+        user-select:none;
+        -webkit-tap-highlight-color:transparent;
+        color:rgba(255,255,255,0.92);
+        background:rgba(10,12,16,0.58);
+        border:1px solid rgba(255,255,255,0.22);
+        backdrop-filter:blur(18px);
+        -webkit-backdrop-filter:blur(18px);
+        box-shadow:0 10px 22px rgba(0,0,0,0.26);
+        z-index:2;
+        transition:opacity .15s ease, transform .15s ease, background .15s ease;
+      }
+      #zoneBar .zone-scroll-btn:hover{ background:rgba(10,12,16,0.70); transform:translateY(-50%) scale(1.02); }
+      #zoneBar .zone-scroll-btn:active{ transform:translateY(-50%) scale(0.98); }
+      #zoneBar[data-overflow="1"] .zone-scroll-btn{ display:flex; }
+      #zoneBar[data-left="0"] .zone-scroll-btn.prev{ opacity:0; pointer-events:none; }
+      #zoneBar[data-right="0"] .zone-scroll-btn.next{ opacity:0; pointer-events:none; }
+      #zoneBar .zone-scroll-btn.prev{ left:10px; }
+      #zoneBar .zone-scroll-btn.next{ right:10px; }
+      #zoneBar .zone-scroll-btn svg{ width:18px; height:18px; display:block; }
+      #zoneBar .zone-scroll{
+        pointer-events:auto;
+        width:100%;
+        display:flex;
+        overflow-x:auto;
+        overflow-y:hidden;
+        touch-action: pan-x;
+        overscroll-behavior-x: contain;
+        cursor:grab;
+        gap:10px;
+        padding:12px calc(16px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+        scrollbar-width:none;
+        -ms-overflow-style:none;
+        -webkit-overflow-scrolling:touch;
+        scroll-behavior:smooth;
+      }
+      /* Make room for scroll buttons when overflowed */
+      #zoneBar[data-overflow="1"] .zone-scroll{
+        padding-left:calc(52px + env(safe-area-inset-left));
+        padding-right:calc(52px + env(safe-area-inset-right));
+      }
+      #zoneBar .zone-scroll:active{ cursor:grabbing; }
+      #zoneBar .zone-scroll::-webkit-scrollbar{ display:none; }
+      /* Center content when it doesn't overflow */
+      #zoneBar[data-fit="true"] .zone-scroll{ justify-content:center; }
+      #zoneBar button.zone-chip{
+        all:unset;
+        box-sizing:border-box;
+        display:inline-block;
+        pointer-events:auto;
+        cursor:pointer;
+        user-select:none;
+        -webkit-tap-highlight-color:transparent;
+        flex-shrink:0;
+        padding:10px 12px;
+        border-radius:12px;
+        /* Darker glass so labels stay readable even on bright/white panos */
+        background:rgba(10,12,16,0.46);
+        border:1px solid rgba(255,255,255,0.22);
+        backdrop-filter:blur(20px);
+        -webkit-backdrop-filter:blur(20px);
+        box-shadow:0 10px 28px rgba(0,0,0,0.26), inset 0 1px 1px rgba(255,255,255,0.10);
+        color:rgba(255,255,255,0.92);
+        text-shadow:0 2px 10px rgba(0,0,0,0.55);
+        font:700 12px/1.15 Inter, ui-sans-serif;
+        text-align:center;
+        min-width:92px;
+        white-space:nowrap;
+        transition:background 0.2s, transform 0.2s;
+      }
+      #zoneBar button.zone-chip:hover{
+        background:rgba(10,12,16,0.58);
+        transform:scale(1.02);
+      }
+      #zoneBar button.zone-chip .sub{ display:block; margin-top:2px; font:600 11px/1.15 Inter, ui-sans-serif; opacity:.78 }
+      #zoneBar button.zone-chip.active{
+        background:rgba(255,255,255,0.95);
+        border-color:rgba(255,255,255,0.95);
+        color:#0f1424;
+        text-shadow:none;
+        box-shadow:0px 10px 6.252px rgba(0,0,0,0.2), 0 0 0 2px rgba(0,0,0,0.1);
+      }
+
+      /* Center room/zone title (disabled: zone name already shown in chips/hotspots) */
+      #roomTitleHud{ display:none !important; }
+      #roomTitleHud .room-ico{
+        width:48px; height:48px;
+        border-radius:999px;
+        background:rgba(255,255,255,0.14);
+        border:1px solid rgba(255,255,255,0.28);
+        backdrop-filter:blur(18px);
+        -webkit-backdrop-filter:blur(18px);
+        display:grid;
+        place-items:center;
+        box-shadow:0 10px 22px rgba(0,0,0,0.18), inset 0 1px 1px rgba(255,255,255,0.12);
+      }
+      #roomTitleHud .room-ico svg{ width:22px; height:22px; stroke:#fff; opacity:0.95 }
+      #roomTitleText{
+        font:700 20px/1.1 Inter, ui-sans-serif, system-ui;
+        color:#fff;
+        text-shadow:0 2px 10px rgba(0,0,0,0.45);
+        white-space:nowrap;
+      }
+
+      /* XR/WebXR button overlay: ensure it stays on top of all UI elements */
+      .xr-button-overlay {
+        z-index: 100003 !important;
+        position: fixed !important;
+      }
+
+      /* XR/WebXR button: make more transparent */
+      .xr-button,
+      .xr-button-container button,
+      .xr-button-overlay button,
+      .webxr-button,
+      .babylonVRicon {
+        opacity: .5 !important;
+        transition: opacity .15s ease;
+      }
+      .xr-button:hover,
+      .xr-button-container button:hover,
+      .xr-button-overlay button:hover,
+      .webxr-button:hover,
+      .babylonVRicon:hover { opacity: .8 !important; }
+
+      /* Finish Experience Button - Hidden */
+      #finishExpBtn {
+        display: none !important;
+      }
+
+      /* Feedback Modal Overlay */
+      #feedbackOverlay {
+        position: fixed;
+        inset: 0;
+        z-index: 100010;
+        display: none;
+        place-items: center;
+        background: rgba(0, 0, 0, 0.85);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+      }
+      #feedbackOverlay.active { display: grid; }
+
+      .feedback-card {
+        width: min(94vw, 480px);
+        max-height: 90vh;
+        overflow-y: auto;
+        background: linear-gradient(180deg, rgba(20, 22, 40, 0.98) 0%, rgba(12, 14, 28, 0.99) 100%);
+        border: 1px solid rgba(243, 196, 0, 0.3);
+        border-radius: 20px;
+        padding: 28px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+        animation: feedbackSlideIn 0.4s ease-out;
+      }
+      @keyframes feedbackSlideIn {
+        from { opacity: 0; transform: translateY(30px) scale(0.95); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+      }
+
+      .feedback-card h2 {
+        margin: 0 0 6px;
+        font: 700 24px/1.2 Inter, ui-sans-serif;
+        color: #F3C400;
+        text-align: center;
+      }
+      .feedback-card .subtitle {
+        margin: 0 0 24px;
+        font: 400 14px/1.4 Inter, ui-sans-serif;
+        color: rgba(231, 236, 255, 0.7);
+        text-align: center;
+      }
+
+      /* Star Rating */
+      .rating-section { margin-bottom: 20px; }
+      .rating-label {
+        font: 600 13px/1 Inter, ui-sans-serif;
+        color: rgba(231, 236, 255, 0.85);
+        margin-bottom: 10px;
+        display: block;
+      }
+      .star-rating {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+      }
+      .star-rating button {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 36px;
+        color: rgba(255, 255, 255, 0.25);
+        transition: all 0.15s ease;
+        padding: 4px;
+      }
+      .star-rating button:hover,
+      .star-rating button.active { color: #F3C400; transform: scale(1.15); }
+      .star-rating button.active { text-shadow: 0 0 20px rgba(243, 196, 0, 0.6); }
+
+      /* Feedback Textarea */
+      .feedback-textarea {
+        width: 100%;
+        min-height: 100px;
+        background: rgba(15, 20, 36, 0.8);
+        border: 1px solid rgba(32, 35, 59, 0.8);
+        border-radius: 12px;
+        padding: 14px;
+        color: var(--ink);
+        font: 400 14px/1.5 Inter, ui-sans-serif;
+        resize: vertical;
+        margin-bottom: 20px;
+      }
+      .feedback-textarea:focus {
+        outline: none;
+        border-color: rgba(243, 196, 0, 0.5);
+        box-shadow: 0 0 0 3px rgba(243, 196, 0, 0.1);
+      }
+      .feedback-textarea::placeholder { color: rgba(231, 236, 255, 0.4); }
+
+      /* Feedback Select Dropdown */
+      .feedback-select {
+        width: 100%;
+        background: rgba(15, 20, 36, 0.8);
+        border: 1px solid rgba(32, 35, 59, 0.8);
+        border-radius: 12px;
+        padding: 12px 14px;
+        color: var(--ink);
+        font: 400 14px/1.4 Inter, ui-sans-serif;
+        cursor: pointer;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='%23F3C400' d='M1 1l5 6 5-6'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 14px center;
+        padding-right: 40px;
+      }
+      .feedback-select:focus {
+        outline: none;
+        border-color: rgba(243, 196, 0, 0.5);
+        box-shadow: 0 0 0 3px rgba(243, 196, 0, 0.1);
+      }
+      .feedback-select option {
+        background: #0f1424;
+        color: var(--ink);
+        padding: 10px;
+      }
+
+      /* Yes/No Toggle Buttons */
+      .feedback-toggle {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+      }
+      .feedback-toggle button {
+        flex: 1;
+        max-width: 120px;
+        padding: 12px 20px;
+        border-radius: 10px;
+        font: 600 14px/1 Inter, ui-sans-serif;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background: rgba(32, 35, 59, 0.6);
+        border: 1px solid rgba(32, 35, 59, 0.8);
+        color: var(--ink);
+      }
+      .feedback-toggle button:hover {
+        background: rgba(32, 35, 59, 0.9);
+        border-color: rgba(243, 196, 0, 0.4);
+      }
+      .feedback-toggle button.active {
+        background: linear-gradient(135deg, #F3C400 0%, #d4a900 100%);
+        border-color: #F3C400;
+        color: #1a1a1a;
+      }
+
+      /* Feedback Form Group */
+      .feedback-group {
+        margin-bottom: 20px;
+      }
+      .feedback-group .rating-label {
+        margin-bottom: 12px;
+      }
+
+      /* Feedback Actions */
+      .feedback-actions {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+      }
+      .feedback-btn {
+        padding: 14px 28px;
+        border-radius: 12px;
+        font: 700 14px/1 Inter, ui-sans-serif;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        border: none;
+      }
+      .feedback-btn.primary {
+        background: linear-gradient(135deg, #F3C400 0%, #d4a900 100%);
+        color: #1a1a1a;
+        box-shadow: 0 4px 16px rgba(243, 196, 0, 0.3);
+      }
+      .feedback-btn.primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(243, 196, 0, 0.4);
+      }
+      .feedback-btn.secondary {
+        background: rgba(32, 35, 59, 0.8);
+        color: var(--ink);
+        border: 1px solid rgba(32, 35, 59, 0.9);
+      }
+      .feedback-btn.secondary:hover { background: rgba(32, 35, 59, 1); }
+
+      /* Thank you state */
+      .feedback-thankyou {
+        text-align: center;
+        padding: 20px 0;
+      }
+      .feedback-thankyou .checkmark {
+        width: 80px;
+        height: 80px;
+        margin: 0 auto 20px;
+        background: linear-gradient(135deg, #28a745 0%, #20913a 100%);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        animation: checkPop 0.5s ease-out;
+      }
+      @keyframes checkPop {
+        0% { transform: scale(0); }
+        50% { transform: scale(1.2); }
+        100% { transform: scale(1); }
+      }
+      .feedback-thankyou .checkmark svg { width: 40px; height: 40px; color: white; }
+      .feedback-thankyou h3 {
+        margin: 0 0 8px;
+        font: 700 22px/1.2 Inter, ui-sans-serif;
+        color: #F3C400;
+      }
+      .feedback-thankyou p {
+        margin: 0;
+        color: rgba(231, 236, 255, 0.7);
+        font: 400 14px/1.5 Inter, ui-sans-serif;
+      }
+
+      /* Start gate (landing screen) */
+      #startGate{
+        position:fixed; inset:0; z-index:10000;
+        display:flex; justify-content:center; align-items:center;
+        padding:clamp(16px, 4vh, 32px) 16px;
+        overflow:hidden;
+        background:#0b0f1f;
+      }
+      #startGate .start-bg{
+        position:absolute; inset:0;
+        background-image: var(--start-gate-bg);
+        background-size:cover; background-position:center;
+        transform: scale(1.02);
+      }
+      #startGate .start-bg::after{
+        content:""; position:absolute; inset:0;
+        background:linear-gradient(180deg, rgba(7,8,18,0.5) 0%, rgba(7,8,18,0.65) 60%, rgba(7,8,18,0.75) 100%);
+      }
+      #startGate .start-content{
+        position:relative; z-index:1;
+        display:flex; flex-direction:column; align-items:center;
+        gap:clamp(12px, 2.6vw, 20px); text-align:center;
+        width:min(800px, 94vw);
+      }
+      #startGate .start-logo{
+        width:clamp(72px, 14vw, 120px); height:auto;
+        filter: drop-shadow(0 6px 12px rgba(0,0,0,0.35));
+      }
+      #startGate .start-title{
+        margin:0; color:#fff;
+        font:600 clamp(20px, 3.2vw, 32px)/1.2 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu;
+        text-shadow:0 2px 12px rgba(0,0,0,0.45);
+      }
+      #startGate .start-actions{
+        width:min(560px, 88vw);
+        display:flex; flex-direction:column; gap:clamp(12px, 2.2vw, 18px); margin-top:6px;
+      }
+      #startGate .start-btn{
+        width:100%;
+        padding:clamp(14px, 2.2vw, 20px) clamp(16px, 3vw, 24px);
+        border-radius:clamp(22px, 3.2vw, 32px);
+        border:1px solid rgba(255,255,255,0.6);
+        background:rgba(255,255,255,0.15);
+        color:#fff; text-transform:uppercase; letter-spacing:0.04em;
+        font:600 clamp(14px, 1.6vw, 18px)/1 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu;
+        cursor:pointer;
+        -webkit-backdrop-filter: blur(16px);
+        backdrop-filter: blur(16px);
+        box-shadow:0 10px 24px rgba(0,0,0,0.25),
+          inset 0 -2px 2px rgba(255,255,255,0.6),
+          inset 0 3px 2px rgba(255,255,255,0.45);
+        transition: background .2s ease, transform .2s ease, box-shadow .2s ease;
+      }
+      #startGate .start-btn:hover{
+        background:rgba(255,255,255,0.22);
+        box-shadow:0 12px 28px rgba(0,0,0,0.3),
+          inset 0 -2px 2px rgba(255,255,255,0.65),
+          inset 0 3px 2px rgba(255,255,255,0.5);
+      }
+      #startGate .start-btn:active{ transform: translateY(1px); }
+
+      /* Join gate overlay */
+      #roleGate{
+        position:fixed; inset:0; z-index:9999;
+        display:grid; place-items:center;
+        padding:clamp(16px, 4vh, 32px) 16px;
+        overflow:hidden;
+        background:#0b0f1f;
+      }
+      #roleGate .gate-bg{
+        position:absolute; inset:0;
+        background-image: var(--start-gate-bg);
+        background-size:cover; background-position:center;
+        transform: scale(1.02);
+      }
+      #roleGate .gate-bg::after{
+        content:""; position:absolute; inset:0;
+        background:linear-gradient(180deg, rgba(7,8,18,0.55) 0%, rgba(7,8,18,0.7) 60%, rgba(7,8,18,0.8) 100%);
+      }
+      #roleGate .gate-modal{
+        position:relative; z-index:1;
+        width:min(640px, 94vw);
+        border-radius:20px;
+        background:linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.10) 100%);
+        border:1px solid rgba(255,255,255,0.38);
+        box-shadow:0 18px 54px rgba(0,0,0,0.55);
+        -webkit-backdrop-filter: blur(20px);
+        backdrop-filter: blur(20px);
+        overflow:hidden;
+        color:#fff;
+        font:14px/1.4 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu;
+      }
+      #roleGate .gate-modal-inner{ padding:20px 22px 14px; }
+      #roleGate .gate-title{
+        margin:0 0 12px;
+        padding-right:44px;
+        font:700 20px/1.2 Inter, ui-sans-serif;
+        color:#fff;
+        text-shadow:0 2px 12px rgba(0,0,0,0.35);
+      }
+      #roleGate .gate-close{
+        position:absolute; right:12px; top:12px;
+        width:30px; height:30px;
+        border-radius:999px;
+        border:1px solid rgba(255,255,255,0.55);
+        background:rgba(0,0,0,0.18);
+        color:#fff;
+        cursor:pointer;
+        display:grid; place-items:center;
+        -webkit-backdrop-filter: blur(10px);
+        backdrop-filter: blur(10px);
+      }
+      #roleGate .gate-close:active{ transform: translateY(1px); }
+      #roleGate .gate-close svg{ width:16px; height:16px; stroke: currentColor; fill:none; stroke-width:2.5; }
+      #roleGate .gate-divider{
+        height:1px;
+        background:rgba(255,255,255,0.35);
+        margin:8px 0 16px;
+      }
+      #roleGate .gate-section{ margin-top:14px; }
+      #roleGate .gate-section:first-of-type{ margin-top:0; }
+      #roleGate .gate-section h3{
+        margin:0 0 10px;
+        font:700 13px/1 Inter, ui-sans-serif;
+        text-transform:none;
+        color:rgba(255,255,255,0.9);
+        letter-spacing:0.02em;
+      }
+      #roleGate .gate-grid{
+        display:grid;
+        grid-template-columns: 260px 1fr;
+        gap:16px 20px;
+        align-items:start;
+      }
+      @media (max-width: 640px){
+        #roleGate .gate-grid{ grid-template-columns: 1fr; gap:14px; }
+      }
+      #roleGate .gate-mode{ display:flex; gap:22px; flex-wrap:wrap; }
+      #roleGate .gate-icon-btn{
+        appearance:none;
+        border:0;
+        background:transparent;
+        color:#fff;
+        cursor:pointer;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap:8px;
+        padding:2px 0;
+        opacity:0.92;
+        user-select:none;
+      }
+      #roleGate .gate-icon-btn .gate-circle{
+        width:54px; height:54px;
+        border-radius:999px;
+        border:2px solid rgba(255,255,255,0.7);
+        background:rgba(0,0,0,0.10);
+        display:grid; place-items:center;
+        transition:border-color .16s ease, box-shadow .16s ease, transform .16s ease, background .16s ease;
+      }
+      #roleGate .gate-icon-btn svg{
+        width:26px; height:26px;
+        stroke:rgba(255,255,255,0.95);
+        fill:none;
+        stroke-width:2;
+        stroke-linecap:round;
+        stroke-linejoin:round;
+      }
+      #roleGate .gate-icon-btn .gate-label{
+        font:600 12px/1.1 Inter, ui-sans-serif;
+        color:rgba(255,255,255,0.9);
+        text-align:center;
+        white-space:nowrap;
+      }
+      #roleGate .gate-icon-btn.active .gate-circle{
+        border-color:rgba(243,196,0,0.95);
+        box-shadow:0 0 0 4px rgba(243,196,0,0.16);
+        background:rgba(243,196,0,0.06);
+      }
+      #roleGate .gate-icon-btn.active svg{ stroke: var(--brand-yellow); }
+      #roleGate .gate-icon-btn:active .gate-circle{ transform: translateY(1px); }
+      #roleGate .gate-room{
+        width:100%;
+        border-radius:12px;
+        padding:13px 14px;
+        background:rgba(8,10,20,0.22);
+        border:1px solid rgba(255,255,255,0.32);
+        outline:none;
+        color:#fff;
+        font:600 14px/1.2 Inter, ui-sans-serif;
+      }
+      #roleGate .gate-room::placeholder{ color:rgba(255,255,255,0.7); font-weight:500; }
+      #roleGate .gate-hint{
+        margin-top:12px;
+        opacity:0.9;
+        font:500 12px/1.35 Inter, ui-sans-serif;
+        color:rgba(255,255,255,0.88);
+      }
+      #roleGate .gate-footer{
+        padding:12px 22px 16px;
+        background:rgba(6,8,18,0.42);
+        border-top:1px solid rgba(255,255,255,0.25);
+      }
+      #roleGate .gate-next{
+        width:100%;
+        border-radius:12px;
+        border:1px solid rgba(255,255,255,0.30);
+        background:rgba(10,12,24,0.55);
+        color:#fff;
+        padding:12px 16px;
+        cursor:pointer;
+        font:800 12px/1 Inter, ui-sans-serif;
+        text-transform:uppercase;
+        letter-spacing:0.14em;
+        transition: background .16s ease, transform .12s ease;
+        text-align:center;
+      }
+      #roleGate .gate-next:hover{ background:rgba(10,12,24,0.65); }
+      #roleGate .gate-next:active{ transform: translateY(1px); }
+      #roleGate .gate-next:disabled{ opacity:0.55; cursor:not-allowed; }
+      /* Viewer must never see HUD/minimap/mirror */
+      body[data-role="viewer"] .mini-wrap,
+      body[data-role="viewer"] #mirrorHud,
+      body[data-role="viewer"] #vrMirrorFrame{ display:none !important }
+
+      /* iOS fullscreen fallback: keep UI visible over canvas */
+      body.fakefs { background:#000; overflow:hidden }
+      /* Force true fullscreen canvas in CSS fallback */
+      body.fakefs #renderCanvas{ position:fixed; inset:0; width:100vw; height:100vh; height:100svh; height:100dvh; height:calc(var(--vh, 1vh) * 100); height:var(--app-height, 100vh); z-index:99997 }
+      body.fakefs #btnFullscreen{ display:none !important; }
+      /* Simple tooltips using data-tip */
+      [data-tip]{ position:relative }
+      [data-tip]:hover::after{
+        content: attr(data-tip);
+        position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%);
+        background:#0f1424; color:var(--ink); border:1px solid rgba(32,35,59,.7);
+        padding:6px 8px; border-radius:8px; font-size:12px; white-space:nowrap; z-index:60;
+        box-shadow:0 6px 16px rgba(0,0,0,.35);
+      }
+      [data-tip]:hover::before{
+        content:""; position:absolute; bottom:100%; left:50%; transform:translateX(-50%);
+        border:6px solid transparent; border-top-color:rgba(32,35,59,.7);
+        filter:drop-shadow(0 2px 2px rgba(0,0,0,.2));
+      }
+      /* Circle buttons + zoom column (legacy UI parity) */
+      .btn-circle{width:36px;height:36px;border:1px solid rgba(32,35,59,.55);border-radius:10px;cursor:pointer;background:rgba(27,23,86,.65);color:var(--brand-yellow);display:grid;place-items:center;transition:transform .05s ease;font-size:16px}
+      .btn-circle:active{ transform: translateY(1px) }
+      #zoomWrap{display:flex;flex-direction:column;gap:6px;margin-left:2px}
+      /* Panel removed - hide completely */
+      #hudPanelToggle{ display:none !important; }
+      #hudPanel{ display:none !important; }
+      .hud-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px}
+      .hud-eyebrow{margin:0; text-transform:uppercase; letter-spacing:.12em; font:700 11px/1 Inter,ui-sans-serif; color:rgba(93,234,255,.78)}
+      .hud-title{margin:2px 0 0; font:700 18px/1.2 Inter,ui-sans-serif; color:#e8ecff}
+      .hud-actions{display:flex; gap:8px; align-items:center}
+      .hud-chip{border:1px solid rgba(93,234,255,.45); background:rgba(93,234,255,.12); color:#e8ecff; padding:8px 12px; border-radius:12px; font:600 13px/1 Inter,ui-sans-serif; cursor:pointer}
+      .hud-close{border:1px solid rgba(255,255,255,.25); background:rgba(255,255,255,.05); color:#e8ecff; border-radius:12px; width:34px; height:34px; cursor:pointer}
+      .hud-grid{display:grid; grid-template-columns:1fr; gap:10px}
+      .hud-card{background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:12px}
+      .hud-label{display:flex; align-items:center; justify-content:space-between; gap:10px; font:600 13px/1 Inter,ui-sans-serif; color:rgba(255,255,255,.78); text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px}
+      .hud-row{display:flex; gap:8px; flex-wrap:wrap}
+      .hud-btn{flex:1; min-width:110px; border:1px solid rgba(93,234,255,.38); background:rgba(93,234,255,.14); color:#e8ecff; border-radius:10px; padding:10px 12px; font:700 14px/1 Inter,ui-sans-serif; cursor:pointer; text-align:center}
+      .hud-btn.ghost{border-color:rgba(255,255,255,.28); background:rgba(255,255,255,.06)}
+      .hud-btn:active{transform:translateY(1px)}
+      .hud-select{width:100%; border:1px solid rgba(93,234,255,.38); background:rgba(12,16,28,.65); color:#e8ecff; border-radius:10px; padding:10px 12px; font:600 14px/1.2 Inter,ui-sans-serif; margin-bottom:8px}
+      #hudZoomRange{width:100%; accent-color:#5deaff}
+      #hudZoomVal{font:700 13px/1 Inter,ui-sans-serif; color:#5deaff}
+          /* ==== Mirror HUD (Agent only): invisible container for viewer badges ==== */
+      #mirrorHud{
+        position:fixed; z-index:39;
+        inset:0;
+        pointer-events:none;
+      }
+      .mirror-badge{
+        position:absolute; width:22px; height:22px; border-radius:999px;
+        background:#F3C400; color:#1a1a1a; font:700 14px/22px Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto;
+        text-align:center; box-shadow:0 2px 6px rgba(0,0,0,.35);
+      }
+
+      /* ==== VR Mirror frame (Guide only): styled like minimap glass panel ==== */
+      #vrMirrorFrame{
+        position:fixed;
+        right:max(92px,env(safe-area-inset-right));
+        top:max(332px, calc(env(safe-area-inset-top) + 84px));
+        width:var(--vrm-width, clamp(180px, min(22vw, 22vh), 220px));
+        z-index:100001;
+        border-radius:12px;
+        overflow:visible;
+        cursor:grab;
+        user-select:none;
+        touch-action:none;
+        /* Base container - transparent so viewport shows */
+        background:transparent;
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        gap:10px;
+        transform:none;
+        transition: width .18s ease, transform .18s ease;
+      }
+      #vrMirrorFrame[data-size="lg"]{
+        /* Keep expanded preview inside viewport/canvas */
+        width:min(
+          var(--vrm-width-lg, clamp(420px, min(62vw, 58vh), 820px)),
+          calc(100vw - 110px),
+          calc((100vh - 120px) * 1.6636)
+        );
+      }
+      #vrMirrorFrame.dragging{ cursor:grabbing }
+      #vrMirrorFrame.minimized{
+        width:auto;
+        aspect-ratio:auto;
+      }
+      #vrMirrorFrame.minimized .vr-mirror-window{ display:none }
+      /* Inner window rect - transparent cutout where viewport renders on canvas */
+      #vrMirrorFrame .vr-mirror-window{
+        position:relative;
+        width:100%;
+        aspect-ratio: 183 / 110;
+        border-radius:12px;
+        overflow:hidden;
+        background:transparent;
+        pointer-events:none;
+        --vrm-pad: 10px;
+      }
+      /* Inner viewport used for correct canvas mapping */
+      #vrMirrorFrame .vr-mirror-viewport{
+        position:absolute;
+        inset:var(--vrm-pad);
+        border-radius:calc(12px - var(--vrm-pad));
+        pointer-events:none;
+      }
+      /* Glass frame border only (hollow center), matched to viewport inset */
+      #vrMirrorFrame .vr-mirror-window::before{
+        content:"";
+        position:absolute;
+        inset:-1px;
+        border-radius:12px;
+        padding:var(--vrm-pad);
+        background:rgba(255,255,255,0.14);
+        border:1px solid rgba(255,255,255,0.32);
+        box-shadow:0 12px 36px rgba(0,0,0,0.24), inset 0 -2px 2px rgba(255,255,255,0.45), inset 0 3px 1.8px rgba(255,255,255,0.45);
+        /* Hollow center - only frame has glass effect */
+        -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+        -webkit-mask-composite: xor;
+        mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+        mask-composite: exclude;
+        pointer-events:none;
+      }
+      #vrMirrorFrame[data-size="lg"] .vr-mirror-window{ border-radius:16px }
+      #vrMirrorFrame[data-size="lg"] .vr-mirror-window::before{
+        border-radius:16px;
+        padding:14px;
+        background:rgba(255,255,255,0.18);
+        border-color:rgba(255,255,255,0.38);
+        box-shadow:0 18px 52px rgba(0,0,0,0.28), inset 0 -2px 2px rgba(255,255,255,0.5), inset 0 3px 1.8px rgba(255,255,255,0.5);
+      }
+      #vrMirrorFrame[data-size="lg"] .vr-mirror-window{ --vrm-pad: 14px; }
+      #vrMirrorFrame[data-size="lg"] .vr-mirror-viewport{ border-radius:calc(16px - var(--vrm-pad)); }
+      #vrMirrorFrame .vr-mirror-btn{
+        width:42px; height:40px;
+        border-radius:999px;
+        border:1px solid rgba(255,255,255,0.32);
+        background:rgba(255,255,255,0.14);
+        color:rgba(255,255,255,0.92);
+        display:grid;
+        place-items:center;
+        cursor:pointer;
+        backdrop-filter:blur(16px);
+        -webkit-backdrop-filter:blur(16px);
+        box-shadow:0 8px 22px rgba(0,0,0,0.18),
+          inset 0 1px 1px rgba(255,255,255,0.15);
+      }
+      #vrMirrorFrame .vr-mirror-btn:active{ transform: translateY(1px) }
+      #vrMirrorFrame .vr-mirror-btn svg{ width:18px; height:18px; opacity:0.9; display:block; stroke: currentColor; fill: none }
+
+      .btn-circle svg{ width:20px; height:20px; display:block; stroke: currentColor; fill: none }
+
+      /* Small-screen tuning (portrait and small screens) */
+      @media (max-width: 480px), (max-height: 640px) { 
+        :root{ --mini-width: clamp(160px, min(45vw, 38vh), 260px); } 
+        .select-btn{ min-width: 100px; padding:8px 10px; padding-right:30px; font-size:12px; } 
+        .select-list li{ padding:8px 10px; font-size:12px; } 
+        .btn-circle{ width:28px; height:28px; font-size:12px; border-radius:7px; } 
+        #zoomWrap{ gap:3px; }
+        #brandLogo img{ height:50px; }
+        #brandLogo{ padding:4px 6px; border-radius:8px; }
+        #topHud{ gap:8px; flex-wrap:wrap; justify-content:center; max-width:calc(100vw - 24px); }
+        .hud-pill{ padding:8px 10px; border-radius:12px; font-size:12px; }
+        #compassHud .compass-dial{ width:16px; height:16px; }
+        #compassText{ font-size:12px; }
+        #expDrawerToggle{ width:46px; height:40px; border-radius:10px; }
+        #expDrawer{ width:min(340px, calc(100vw - 24px)); max-height:calc(var(--app-height, 100vh) - 24px); }
+        #expDrawer .menu-grid{ grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; }
+        #expDrawer .menu-ico{ width:48px; height:48px; }
+        #zoneBar{ width:calc(100vw - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)); border-radius:16px; }
+        #zoneBar .zone-scroll{ gap:8px; padding:10px calc(12px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left)); }
+        #zoneBar button.zone-chip{ min-width:78px; padding:9px 10px; font-size:11px; }
+        #zoneBar button.zone-chip .sub{ font-size:10px; }
+        #zoneBar[data-overflow="1"] .zone-scroll{
+          padding-left:calc(46px + env(safe-area-inset-left));
+          padding-right:calc(46px + env(safe-area-inset-right));
+        }
+        #zoneBar .zone-scroll-btn{ width:30px; height:30px; }
+        /* Show rotate overlay when portrait on narrow devices */
+        html[data-device="phone"][data-orient="portrait"] #rotateOverlay{ display:grid }
+        #startGate .start-title{ font-size:22px; }
+        #startGate .start-actions{ gap:12px; }
+        #startGate .start-btn{ padding:16px 18px; font-size:14px; border-radius:24px; }
+      }
+
+      /* Landscape on phones: make controls even smaller and keep bottom bar compact */
+      @media (orientation: landscape) and (max-height: 480px) { 
+        :root{ --mini-width: clamp(140px, min(40vw, 32vh), 240px); } 
+        .select-btn{ min-width: 90px; padding:6px 8px; padding-right:24px; font-size:11px; } 
+        .btn-circle{ width:24px; height:24px; font-size:10px; border-radius:6px; } 
+        #zoomWrap{ gap:2px; } 
+        #brandLogo img{ height:40px; }
+        #brandLogo{ padding:3px 5px; }
+        #topHud{ gap:6px; }
+        .hud-pill{ padding:6px 8px; border-radius:10px; font-size:11px; }
+        #compassHud .compass-dial{ width:14px; height:14px; }
+        #compassText{ font-size:10px; }
+      }
+      
+      /* Iframe support */
+      @media (display-mode: browser) {
+        body.fakefs{ position:fixed; inset:0; }
+      }
+      
+      /* Loading overlay (bar only) */
+      #preloadOverlay{ position:fixed; inset:0; display:none; place-items:center; z-index:99999; background:rgba(0,0,0,.62); -webkit-backdrop-filter: blur(1.5px); backdrop-filter: blur(1.5px); opacity:0; transition:opacity .15s ease }
+      #preloadOverlay[aria-busy="true"]{ display:grid; opacity:1 }
+      .loader-card{ width:min(70vw,420px); background:#0f1424; border:1px solid rgba(32,35,59,.55); border-radius:14px; padding:16px }
+      .bar{ height:10px; border-radius:999px; background:#1d2540; overflow:hidden; border:1px solid rgba(255,255,255,.08) }
+      .bar > i{ display:block; height:100%; width:0%; background:linear-gradient(90deg, var(--brand-yellow), #ffdd55); border-radius:inherit; transition:width .12s ease }
+    </style>
+    <link rel="preconnect" href="https://vrsync.dev.opensky.co.in" crossorigin>
+    <!-- iOS PWA fullscreen when added to Home Screen -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  </head>
+  <body>
+    <canvas id="renderCanvas"></canvas>
+    <!-- Exit Fullscreen (shows only when in fullscreen) -->
+    <button id="exitFSBtn" type="button" aria-label="Exit fullscreen">ESC</button>
+    <!-- Fullscreen / Expand (iPhone uses CSS fullscreen) -->
+    <button id="btnFullscreen" type="button" aria-label="Fullscreen">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 9V4h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M20 9V4h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M4 15v5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <path d="M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <!-- Loading overlay (centered bar; no text) -->
+    <div id="preloadOverlay" aria-hidden="true">
+      <div class="loader-card">
+        <div class="bar"><i id="barFill" style="width:0%"></i></div>
+      </div>
+    </div>
+
+    <!-- Project logo (top-left) -->
+    <div id="brandLogo"><img src="/assets/logo.png" alt="Nandanavanam logo"></div>
+
+    <!-- Experiences toggle -->
+    <button id="expDrawerToggle" class="hud-pill" type="button" aria-label="Experiences">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </button>
+
+    <!-- Experiences drawer --> 
+    <div id="expDrawer" data-open="false" aria-hidden="true"> 
+      <button id="expDrawerClose" class="exp-close" type="button" aria-label="Close">×</button> 
+      <div class="menu-head" aria-hidden="true"></div> 
+      <div id="expMenuGrid" class="menu-grid" role="list"></div> 
+      <button id="menuCloseExperience" class="menu-closeexp" type="button">Finish</button> 
+      <!-- Legacy custom select kept for app.js wiring (hidden by CSS) --> 
+      <div class="select" id="expSelectLiveWrap" data-open="false"> 
+        <button type="button" class="select-btn" id="expBtn"> 
+          <span id="expLabel">Select experience</span> 
+          <svg width="14" height="10" viewBox="0 0 12 8" xmlns="http://www.w3.org/2000/svg"><path fill="#F3C400" d="M1 1l5 6 5-6"/></svg>
+        </button>
+        <ul class="select-list" id="expList" role="listbox"></ul>
+        <select id="expSelectLive" hidden></select>
+      </div>
+    </div>
+
+    <!-- Top HUD -->
+    <div id="topHud">
+      <div id="compassHud" class="hud-pill" aria-hidden="false">
+        <div class="compass-dial">
+          <svg id="compassDial" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="compassGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" style="stop-color:rgba(35,40,65,0.95)"/>
+                <stop offset="100%" style="stop-color:rgba(18,20,38,0.98)"/>
+              </linearGradient>
+            </defs>
+            <circle cx="24" cy="24" r="22" fill="url(#compassGrad)" stroke="rgba(243,196,0,0.35)" stroke-width="1"/>
+            <line x1="24" y1="4" x2="24" y2="8" stroke="#F3C400" stroke-width="2" stroke-linecap="round"/>
+            <line x1="24" y1="40" x2="24" y2="44" stroke="#6b7280" stroke-width="1" stroke-linecap="round"/>
+            <line x1="4" y1="24" x2="8" y2="24" stroke="#6b7280" stroke-width="1" stroke-linecap="round"/>
+            <line x1="40" y1="24" x2="44" y2="24" stroke="#6b7280" stroke-width="1" stroke-linecap="round"/>
+            <text x="24" y="16" text-anchor="middle" fill="#F3C400" font-family="Inter, system-ui, sans-serif" font-size="8" font-weight="700">N</text>
+          </svg>
+          <svg style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;pointer-events:none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="12,3 17,15 12,12 7,15" fill="#F3C400" filter="drop-shadow(0 1px 3px rgba(0,0,0,0.6))"/>
+          </svg>
+        </div>
+        <span id="compassText">0 N</span>
+        <span id="compassDirection">N</span>
+      </div>
+      <button id="tourToggleTop" class="hud-pill" type="button" aria-label="Play/Pause Autoplay" title="Play/Pause" data-label="AutoPlay"></button>
+      <button id="tourStopTop" class="hud-pill" type="button" aria-label="Stop Autoplay" title="Stop" style="display:none;">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor"/>
+        </svg>
+      </button>
+    </div>
+    <!-- Center room/zone title (Guide UI) -->
+    <div id="roomTitleHud" aria-hidden="false">
+      <div class="room-ico" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/>
+        </svg>
+      </div>
+      <div id="roomTitleText">-</div>
+    </div>
+    <!-- Zone name toast (center-bottom) -->
+    <div id="zoneToast" aria-hidden="true"><span id="zoneToastText"></span></div>
+    <!-- Bottom zones bar -->
+    <div id="zoneBar" data-show="0" aria-hidden="true">
+      <button id="zoneBarPrev" class="zone-scroll-btn prev" type="button" aria-label="Scroll zones left" title="Scroll left">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div id="zoneBarList" class="zone-scroll" role="tablist" aria-label="Zones"></div>
+      <button id="zoneBarNext" class="zone-scroll-btn next" type="button" aria-label="Scroll zones right" title="Scroll right">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5 16 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <!-- Dollhouse (3D model viewer overlay) -->
+    <div id="dollhouseOverlay" data-open="0" aria-hidden="true" hidden>
+      <div class="dh-panel" role="dialog" aria-modal="true" aria-label="Dollhouse">
+        <button id="dollhouseClose" type="button" aria-label="Close dollhouse" title="Close">✕</button>
+        <canvas id="dollhouseCanvas"></canvas>
+        <div id="dollhouseStatus" aria-live="polite"></div>
+      </div>
+    </div>
+    <!-- Guide-only VR mirror preview (renders inside #renderCanvas via Babylon viewports) -->
+    <div id="vrMirrorFrame" aria-hidden="true" style="display:none">
+      <button id="vrMirrorToggle" class="vr-mirror-btn" type="button" aria-label="Maximize VR preview" title="Maximize">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3.2c-3.2 0-5.8 2.4-6.1 5.4h12.2c-.3-3-2.9-5.4-6.1-5.4Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          <path d="M5.2 9.4c-1.2.2-2.2 1.2-2.2 2.5v3.2c0 1.4 1.2 2.6 2.6 2.6h1.3c.8 0 1.6-.4 2.1-1.1l.8-1.1c.2-.3.5-.4.8-.4h2.8c.3 0 .6.1.8.4l.8 1.1c.5.7 1.3 1.1 2.1 1.1h1.3c1.4 0 2.6-1.2 2.6-2.6v-3.2c0-1.3-1-2.3-2.2-2.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M8.2 12.8h2.6M13.2 12.8h2.6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M5.8 9.5c.9.6 1.6 1.5 2 2.6M18.2 9.5c-.9.6-1.6 1.5-2 2.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" opacity="0.9"/>
+        </svg>
+      </button>
+      <div class="vr-mirror-window" aria-hidden="true">
+        <div class="vr-mirror-viewport" aria-hidden="true"></div>
+      </div>
+    </div>
+    <!-- Agent-only mirror badges; hidden on Viewer by app.js -->
+    <div id="mirrorHud" aria-hidden="true"></div>
+    <!-- Finish Tour Button -->
+    <button id="finishExpBtn" type="button" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+        <line x1="9" y1="9" x2="15" y2="15"/>
+        <line x1="15" y1="9" x2="9" y2="15"/>
+      </svg>
+      <span>Finish</span>
+    </button>
+    <!-- Glass control panel (2D view) -->
+    <button id="hudPanelToggle" type="button" aria-haspopup="true"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>Panel</span></button>
+    <div id="hudPanel" data-open="0" hidden>
+      <div class="hud-head">
+        <div>
+          <p class="hud-eyebrow">Immersive controls</p>
+          <h3 class="hud-title">Panorama Panel</h3>
+        </div>
+        <div class="hud-actions">
+          <button id="hudEnterXR" class="hud-chip" type="button">XR Mode</button>
+          <button id="hudClosePanel" class="hud-close" type="button" aria-label="Close panel">✕</button>
+        </div>
+      </div>
+      <div class="hud-grid">
+        <div class="hud-card">
+          <div class="hud-label">Autoplay<span id="hudPlayState">idle</span></div>
+          <div class="hud-row">
+            <button id="hudTourToggle" class="hud-btn" type="button">Play / Pause</button>
+            <button id="hudTourStop" class="hud-btn ghost" type="button">Stop</button>
+          </div>
+        </div>
+        <div class="hud-card">
+          <div class="hud-label">Zones<span id="hudZoneHint">-</span></div>
+          <select id="hudZoneSelect" class="hud-select"></select>
+          <div class="hud-row">
+            <button id="hudPrevZone" class="hud-btn ghost" type="button">Prev Zone</button>
+            <button id="hudNextZone" class="hud-btn ghost" type="button">Next Zone</button>
+          </div>
+        </div>
+        <div class="hud-card">
+          <div class="hud-label">Pano Travel</div>
+          <div class="hud-row">
+            <button id="hudPrevPano" class="hud-btn ghost" type="button">Prev Pano</button>
+            <button id="hudNextPano" class="hud-btn ghost" type="button">Next Pano</button>
+          </div>
+        </div>
+        <div class="hud-card">
+          <div class="hud-label">Zoom <span id="hudZoomVal">1.10</span></div>
+          <input id="hudZoomRange" type="range" min="0.45" max="1.7" step="0.01" value="1.1"/>
+        </div>
+        <div class="hud-card">
+          <div class="hud-label">Minimap & XR</div>
+          <div class="hud-row">
+            <button id="hudToggleMini" class="hud-btn ghost" type="button">Toggle Minimap</button>
+            <button id="hudToggleXR" class="hud-btn ghost" type="button">Enter / Exit XR</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Start Gate -->
+    <div id="startGate" aria-hidden="false">
+      <div class="start-bg" aria-hidden="true"></div>
+      <div class="start-content">
+        <img class="start-logo" src="/assets/logo.png" alt="Nandanavanam logo">
+        <h1 class="start-title">Welcome to Nandanavanam!</h1>
+        <div class="start-actions">
+          <button id="btnSelfExplore" class="start-btn" type="button">Self Exploratory</button>
+          <button id="btnGuided" class="start-btn" type="button">Guided</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Join Gate (heading removed) -->
+    <div id="roleGate">
+      <div class="gate-bg" aria-hidden="true"></div>
+      <div class="gate-modal" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
+        <button id="gateClose" class="gate-close" type="button" aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12"/><path d="M18 6L6 18"/></svg>
+        </button>
+        <div class="gate-modal-inner">
+          <h2 id="gateTitle" class="gate-title">Select Your Options</h2>
+          <div class="gate-divider" aria-hidden="true"></div>
+
+          <div class="gate-grid">
+            <div class="gate-section">
+              <h3>Select Mode</h3>
+              <div class="gate-mode">
+                <button type="button" id="btnGuide" class="gate-icon-btn" data-role="guide" aria-pressed="true">
+                  <span class="gate-circle" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4z"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
+                  </span>
+                  <span class="gate-label">Guide</span>
+                </button>
+                <button type="button" id="btnViewer" class="gate-icon-btn" data-role="viewer" aria-pressed="false">
+                  <span class="gate-circle" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6z"/><path d="M12 15a3 3 0 1 0-3-3 3 3 0 0 0 3 3z"/></svg>
+                  </span>
+                  <span class="gate-label">Self / Viewer</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="gate-section">
+              <h3>Enter Room Number</h3>
+              <input id="roomInput" class="gate-room" type="text" inputmode="text" placeholder="Enter room number" autocomplete="off" />
+            </div>
+          </div>
+
+          <select id="expSelect" hidden></select>
+          <ul id="gateExpList" hidden></ul>
+
+          <div class="gate-hint">
+            To view the property in self exploratory mode, join as <b>Guide</b>.
+          </div>
+        </div>
+
+        <div class="gate-footer">
+          <button id="gateNext" class="gate-next" type="button">Next</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rotate overlay (phones portrait only) -->
+    <div id="rotateOverlay" aria-hidden="true">
+      <div class="card">
+        <h2>Rotate Your Phone</h2>
+        <p>Please turn your device to landscape to enjoy the experience.</p>
+        <button id="tapStart" type="button">Tap to Start</button>
+      </div>
+    </div>
+
+    <!-- Feedback Modal -->
+    <div id="feedbackOverlay">
+      <div class="feedback-card" id="feedbackCard">
+        <div id="feedbackForm">
+          <h2>How was your experience?</h2>
+          <p class="subtitle">We'd love to hear your thoughts about the virtual tour</p>
+          
+          <!-- 1. Rate your experience -->
+          <div class="feedback-group">
+            <span class="rating-label">1. Rate your experience</span>
+            <div class="star-rating" id="starRating">
+              <button type="button" data-rating="1">★</button>
+              <button type="button" data-rating="2">★</button>
+              <button type="button" data-rating="3">★</button>
+              <button type="button" data-rating="4">★</button>
+              <button type="button" data-rating="5">★</button>
+            </div>
+          </div>
+          
+          <!-- 2. Best view/experience dropdown -->
+          <div class="feedback-group">
+            <span class="rating-label">2. Which view of the property gave you the best insights?</span>
+            <select class="feedback-select" id="bestExperienceSelect">
+              <option value="">Select an experience...</option>
+            </select>
+          </div>
+          
+          <!-- 3. Would visit in person -->
+          <div class="feedback-group">
+            <span class="rating-label">3. If you are yet to visit the site, would you like to go in person?</span>
+            <div class="feedback-toggle" id="visitToggle">
+              <button type="button" data-value="yes">Yes</button>
+              <button type="button" data-value="no">No</button>
+            </div>
+          </div>
+          
+          <!-- 4. Comments -->
+          <div class="feedback-group">
+            <span class="rating-label">4. Any specific comments on the overall immersive view?</span>
+            <textarea class="feedback-textarea" id="feedbackText" placeholder="Share your thoughts about the virtual tour experience..." rows="4" autocomplete="on" spellcheck="true" style="white-space: pre-line;"></textarea>
+          </div>
+          
+          <div class="feedback-actions">
+            <button type="button" class="feedback-btn secondary" id="skipFeedback">Skip</button>
+            <button type="button" class="feedback-btn primary" id="submitFeedback">Submit Feedback</button>
+          </div>
+        </div>
+        
+        <div id="feedbackThankyou" class="feedback-thankyou" style="display:none;">
+          <div class="checkmark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </div>
+          <h3>Thank You!</h3>
+          <p>Your feedback helps us improve the experience for everyone.</p>
+          <button type="button" class="feedback-btn primary" id="closeFeedback" style="margin-top:20px;">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- iOS: explain "real" fullscreen requires Add to Home Screen -->
+    <div id="pwaHint" hidden aria-hidden="true">
+      <div class="pwa-card" role="dialog" aria-modal="true" aria-label="Fullscreen on iPhone">
+        <div class="pwa-title">iPhone Fullscreen</div>
+        <div class="pwa-body">Safari/Chrome on iPhone can’t do true fullscreen for WebGL canvases in a tab. For real fullscreen, use Share → Add to Home Screen, then launch from the icon.</div>
+        <div class="pwa-actions">
+          <button id="pwaHintClose" type="button">Got it</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- First-run onboarding tips -->
+    <div id="onboardOverlay" hidden aria-hidden="true">
+      <div class="onboard-dim" aria-hidden="true"></div>
+      <div id="onboardSpotlight" class="onboard-spotlight" aria-hidden="true"></div>
+      <div id="onboardCard" class="onboard-card" role="dialog" aria-modal="true" aria-label="Tips">
+        <div id="onboardTitle" class="onboard-title">Tips</div>
+        <div id="onboardBody" class="onboard-body"></div>
+        <div id="onboardHint" class="onboard-hint">Tip: tap the highlighted control to try it.</div>
+        <div id="onboardProgress" class="onboard-progress" aria-hidden="true"></div>
+        <div class="onboard-actions">
+          <button id="onboardSkip" type="button" class="onboard-btn ghost">Skip</button>
+          <button id="onboardNext" type="button" class="onboard-btn primary">Next</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/app.js"></script>
+
+    <script>
+      if ('serviceWorker' in navigator) {
+        try {
+          const host = location.hostname || '';
+          const isIPv4 = /^\d+\.\d+\.\d+\.\d+$/.test(host);
+          const allow = (window.isSecureContext === true) && !isIPv4 && host !== 'localhost' && host !== '127.0.0.1';
+          if (allow) navigator.serviceWorker.register('/sw.js').catch(()=>{});
+        } catch {}
+      }
+    </script>
+  </body>
+</html>
