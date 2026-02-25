@@ -14,11 +14,9 @@ const IS_LOCALHOST = typeof window !== 'undefined' && (
   /^10\./.test(window.location.hostname) ||
   /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(window.location.hostname)
 );
-const ANALYTICS_URL = String(import.meta?.env?.VITE_ANALYTICS_URL || '').trim();
-const ANALYTICS_ENABLED =
-  !IS_LOCALHOST &&
-  ANALYTICS_URL.length > 0 &&
-  String(import.meta?.env?.VITE_ANALYTICS_ENABLED ?? '1') !== '0';
+// SheetDB/Google-Sheets analytics removed (analytics is sent to the main VR server instead).
+const ANALYTICS_URL = '';
+const ANALYTICS_ENABLED = false;
 const VR_API_ENABLED =
   !IS_LOCALHOST &&
   String(import.meta?.env?.VITE_VR_API_ENABLED ?? '1') !== '0';
@@ -26,8 +24,6 @@ const LOCAL_STORAGE_KEY = 'vr_tour_analytics';
 const BACKUP_INTERVAL_MS = 300000; // Backup send every 5 minutes (reduced to avoid rate limits)
 const INACTIVITY_TIMEOUT_MS = 600000; // 10 minutes of inactivity = auto-end session
 const VR_FUNCTION_BASE = '/.netlify/functions/vr';
-
-// Custom endpoint URL (set `VITE_ANALYTICS_URL` to enable; disabled by default)
 
 class TourAnalytics {
   constructor() {
@@ -719,7 +715,16 @@ class TourAnalytics {
       row.feedback_submitted_at_utc = this.feedback.submittedAtUtc || '';
     }
     
-    console.log(`[Analytics] Sending (${trigger}, #${this.sendCount}):`, row);
+    console.log(`[Analytics] Snapshot (${trigger}, #${this.sendCount}):`, row);
+
+    // SheetDB removed: keep a lightweight local snapshot for debugging.
+    try {
+      const stored = JSON.parse(localStorage.getItem(LOCAL_STORAGE_KEY) || '[]');
+      stored.push(row);
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stored.slice(-20)));
+    } catch {}
+
+    return;
 
     // Use keepalive for unload/pagehide/hidden events to ensure data sends even if page closes
     const isFinalEvent = trigger === 'unload' || trigger === 'pagehide' || trigger === 'hidden' || trigger === 'finished' || trigger === 'inactivity_timeout';

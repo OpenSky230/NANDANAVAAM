@@ -29,3 +29,6 @@ test-results/
 Thumbs.db
 .idea/
 .vscode/
+
+# Local Netlify folder
+.netlify
