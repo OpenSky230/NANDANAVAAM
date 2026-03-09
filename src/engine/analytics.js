@@ -125,10 +125,20 @@ class TourAnalytics {
     if (this.vrApiStartPromise) return this.vrApiStartPromise;
 
     this.vrApiStartPromise = (async () => {
+      let projectId = '';
+      let vrType = '';
+      try {
+        const params = new URLSearchParams(window.location.search);
+        projectId = String(params.get('projectId') || params.get('project_id') || '').trim();
+        vrType = String(params.get('vr_type') || params.get('vrType') || '').trim();
+      } catch {}
+
       const payload = {
         digital_twin_id: this.currentExperience || this.projectName || 'unknown',
+        ...(projectId ? { project_id: projectId } : {}),
         user_id: this.userId,
         device: this.normalizeVrDevice(),
+        ...(vrType ? { vr_type: vrType } : {}),
         city: this.userLocation?.area || 'Unknown',
         region: this.userLocation?.region || '',
         country: this.userLocation?.country || '',
@@ -186,11 +196,21 @@ class TourAnalytics {
     if (this.vrApiCompletePromise) return this.vrApiCompletePromise;
 
     this.vrApiCompletePromise = (async () => {
+      let projectId = '';
+      let vrType = '';
+      try {
+        const params = new URLSearchParams(window.location.search);
+        projectId = String(params.get('projectId') || params.get('project_id') || '').trim();
+        vrType = String(params.get('vr_type') || params.get('vrType') || '').trim();
+      } catch {}
+
       const now = Date.now();
       const totalDurationSeconds = Math.max(0, Math.round((now - this.sessionStart) / 1000));
       const payload = {
         session_id: this.vrApiSessionId || this.sessionId,
+        ...(projectId ? { project_id: projectId } : {}),
         total_duration: totalDurationSeconds,
+        ...(vrType ? { vr_type: vrType } : {}),
         used_vr: Boolean(this.xrTime > 0 || this.isXR),
       };
 
