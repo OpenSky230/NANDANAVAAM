@@ -132,6 +132,9 @@ class TourAnalytics {
         projectId = String(params.get('projectId') || params.get('project_id') || '').trim();
         vrType = String(params.get('vr_type') || params.get('vrType') || '').trim();
       } catch {}
+      if (projectId) {
+        try { console.log('projectId for vr session', projectId); } catch {}
+      }
 
       const payload = {
         digital_twin_id: this.currentExperience || this.projectName || 'unknown',
